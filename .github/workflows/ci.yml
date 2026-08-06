@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: changeme
+          MYSQL_DATABASE: chtech
+        ports:
+          - 3306:3306
+        options: >-
+          --character-set-server=utf8mb4
+          --collation-server=utf8mb4_0900_as_cs
+          --health-cmd "mysqladmin ping -h localhost -u root -pchangeme"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # --network host below is what makes localhost reach the service
+      # containers; both are thrown away with the runner, so plain committed
+      # values here aren't secrets (SECURITY.md concern doesn't apply).
+      DATABASE_URL: mysql+aiomysql://chtech_app:ci-app-changeme@localhost:3306/chtech?charset=utf8mb4
+      MIGRATION_DATABASE_URL: mysql+aiomysql://chtech_migrator:ci-migrator-changeme@localhost:3306/chtech?charset=utf8mb4
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET_KEY: ci-only-jwt-secret-not-used-anywhere-real-32-bytes
+    steps:
+      - uses: actions/checkout@v7
+
+      # GH Actions service containers have no docker-entrypoint-initdb.d
+      # volume-mount equivalent, unlike Compose (database/init/01-create-roles.sh)
+      # — bootstrap the same chtech_app (DML-only) / chtech_migrator (DDL)
+      # split explicitly here instead. See
+      # docs/adr/0001-mysql-database-privilege-separation.md.
+      - name: Bootstrap DB roles (chtech_app / chtech_migrator)
+        run: |
+          mysql -h 127.0.0.1 -u root -pchangeme <<-EOSQL
+            CREATE USER IF NOT EXISTS 'chtech_app'@'%' IDENTIFIED BY 'ci-app-changeme';
+            GRANT SELECT, INSERT, UPDATE, DELETE ON \`chtech\`.* TO 'chtech_app'@'%';
+
+            CREATE USER IF NOT EXISTS 'chtech_migrator'@'%' IDENTIFIED BY 'ci-migrator-changeme';
+            GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES
+              ON \`chtech\`.* TO 'chtech_migrator'@'%';
+            GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES
+              ON \`chtech_test\`.* TO 'chtech_migrator'@'%';
+
+            FLUSH PRIVILEGES;
+          EOSQL
+
+      - name: Build backend image
+        run: docker build -f docker/backend/Dockerfile.dev -t ch-tech-backend:ci .
+
+      - name: Lint backend (Ruff)
+        run: docker run --rm ch-tech-backend:ci ruff check .
+
+      - name: Format check backend (Black)
+        run: docker run --rm ch-tech-backend:ci black --check .
+
+      - name: Type check backend (MyPy)
+        run: docker run --rm ch-tech-backend:ci mypy .
+
+      # DATABASE_MIGRATIONS.md / CI_CD.md "Database Validation": upgrade,
+      # downgrade, upgrade again from a fresh database, single head, and no
+      # drift between models and migrations (alembic check). All migration
+      # commands use MIGRATION_DATABASE_URL (chtech_migrator) — alembic/env.py
+      # never reads DATABASE_URL (chtech_app, DML-only).
+      - name: Migrate up (from empty database)
+        run: docker run --rm --network host -e DATABASE_URL -e MIGRATION_DATABASE_URL -e JWT_SECRET_KEY -e REDIS_URL ch-tech-backend:ci alembic upgrade head
+
+      - name: Migrate down (full rollback)
+        run: docker run --rm --network host -e DATABASE_URL -e MIGRATION_DATABASE_URL -e JWT_SECRET_KEY -e REDIS_URL ch-tech-backend:ci alembic downgrade base
+
+      - name: Migrate up again
+        run: docker run --rm --network host -e DATABASE_URL -e MIGRATION_DATABASE_URL -e JWT_SECRET_KEY -e REDIS_URL ch-tech-backend:ci alembic upgrade head
+
+      - name: Verify a single migration head
+        run: |
+          heads=$(docker run --rm --network host -e DATABASE_URL -e MIGRATION_DATABASE_URL -e JWT_SECRET_KEY -e REDIS_URL ch-tech-backend:ci alembic heads)
+          [ "$(echo "$heads" | wc -l)" -eq 1 ]
+
+      - name: Verify no drift between models and migrations
+        run: docker run --rm --network host -e DATABASE_URL -e MIGRATION_DATABASE_URL -e JWT_SECRET_KEY -e REDIS_URL ch-tech-backend:ci alembic check
+
+      - name: Test backend (pytest)
+        run: docker run --rm --network host -e DATABASE_URL -e MIGRATION_DATABASE_URL -e JWT_SECRET_KEY -e REDIS_URL ch-tech-backend:ci pytest --cov --cov-report=term-missing --ignore=tests/test_db_privilege_boundary.py
+
+      # Concrete proof the privilege split actually holds, not just that the
+      # app's own queries happen not to attempt DDL — see
+      # tests/test_db_privilege_boundary.py.
+      - name: Verify chtech_app cannot run DDL (privilege boundary)
+        run: docker run --rm --network host -e DATABASE_URL -e MIGRATION_DATABASE_URL -e JWT_SECRET_KEY -e REDIS_URL ch-tech-backend:ci pytest tests/test_db_privilege_boundary.py -v
+
+      - name: SAST backend (Bandit)
+        run: docker run --rm ch-tech-backend:ci bandit -c pyproject.toml -r .

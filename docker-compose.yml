@@ -1,0 +1,55 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile.dev
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.4
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_as_cs
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD}
+      MYSQL_MIGRATOR_PASSWORD: ${MYSQL_MIGRATOR_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Auto-run on first init only: creates chtech_app (DML-only) and
+      # chtech_migrator (DDL) — see database/init/01-create-roles.sh and
+      # docs/adr/0001-mysql-database-privilege-separation.md. Deliberately
+      # NOT using MYSQL_USER/MYSQL_PASSWORD, which grants ALL PRIVILEGES to
+      # a single user — exactly what this split exists to avoid.
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Shared rate-limit counter store (ADR-0007) — not used for sessions,
+  # those live in MySQL (refresh_tokens).
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:

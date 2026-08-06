@@ -1,0 +1,74 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+src = ["app"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "N",   # pep8-naming
+    "ARG", # flake8-unused-arguments
+    "C4",  # flake8-comprehensions
+    "RUF", # ruff-specific rules
+]
+# Black owns line length; E501 flags lines Black can't wrap (long urls/strings)
+# and just fights with it, so leave that call to Black/reviewers instead.
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's DI relies on calling Depends()/Query()/... as a default value —
+# that's the framework's own idiom, not the mutable-default footgun B008
+# exists to catch.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "fastapi.Cookie",
+    "fastapi.Security",
+]
+
+[tool.black]
+target-version = ["py313"]
+line-length = 88
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# app.db.session.engine is a module-level singleton (correct for app runtime),
+# so every async test must share the same event loop it was created on —
+# otherwise aiomysql connections bound to one test's loop leak into the next.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+
+[tool.coverage.run]
+source = ["app"]
+# SQLAlchemy's async engine bridges to its sync DBAPI drivers via greenlet
+# context switches; without this, coverage.py's tracer doesn't follow
+# execution across those switches and DB-touching endpoint code shows up as
+# falsely uncovered even though the tests that exercise it pass.
+concurrency = ["greenlet", "thread"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+fail_under = 90
+
+[tool.bandit]
+# assert is how pytest checks pass/fail; B101 only matters for app code,
+# where asserts can be stripped by python -O and shouldn't gate security.
+exclude_dirs = ["tests"]

@@ -1,0 +1,37 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE}
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+
+  # Self-hosted en la misma instancia EC2 (ADR-0011) — App Runner (ADR-0010)
+  # obligaba a un servicio externo (Upstash) por su límite de un solo
+  # contenedor por servicio, esa restricción no aplica aquí.
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # Reverse proxy + terminación TLS (Let's Encrypt, ver ADR-0011). Los
+  # certificados se renuevan con certbot en el host, fuera de Docker, y se
+  # montan aquí de solo lectura.
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    depends_on:
+      - backend
+    restart: always

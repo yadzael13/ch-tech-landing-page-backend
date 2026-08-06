@@ -1,0 +1,24 @@
+# Trivy ignore list — CVE Exceptions Register
+#
+# Every entry here must have: the vendored package, why it can't be fixed
+# from our package.json/requirements.txt, and why it's not exploitable in
+# our deployment. Do not add an entry without both justifications. Remove
+# an entry as soon as the upstream package that vendors it ships a fix.
+#
+# ---------------------------------------------------------------------------
+# next@16.2.12 vendors precompiled copies of these packages directly inside
+# next/dist/compiled/*, used only by Next's own build tooling (next build /
+# next dev, including its provenance-signing step). They are not part of the
+# regular node_modules dependency graph, so neither `npm audit` nor npm
+# `overrides` in frontend/package.json can reach or fix them — only a new
+# Next.js release can. They process our own trusted source tree at build
+# time, not untrusted network input at runtime, so none are reachable in
+# production. Re-evaluate on every Next.js version bump (see D2, D4).
+CVE-2026-59873 # tar — DoS via crafted gzip bomb (CRITICAL, node-tar, build-time only)
+CVE-2026-59874 # tar — DoS via malformed tar header (build-time only)
+CVE-2026-45623 # postcss — info disclosure / DoS via crafted CSS input (build-time only)
+GHSA-r28c-9q8g-f849 # postcss — path traversal via sourceMappingURL auto-load (build-time only)
+CVE-2026-13149 # brace-expansion — ReDoS via crafted glob pattern (build-time only)
+CVE-2026-14257 # brace-expansion — ReDoS via crafted glob pattern (build-time only)
+CVE-2026-33671 # picomatch — ReDoS via crafted extglob pattern (build-time only)
+CVE-2026-48815 # sigstore — unauthorized certificates accepted (used only for Next's build provenance signing, not our auth)

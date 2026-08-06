@@ -1,0 +1,34 @@
+FROM python:3.14-slim AS builder
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+FROM python:3.14-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH=/home/appuser/.local/bin:$PATH
+
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
+
+COPY --from=builder /root/.local /home/appuser/.local
+COPY --chown=appuser:appuser . .
+
+USER appuser
+
+EXPOSE 8000
+
+# EC2 puede correr esta imagen mediante Docker Compose (ver ADR-0011): las
+# migraciones de Alembic NO corren aquí para mantener el mismo patrón de
+# despliegue (evitar carreras si en el futuro se escala a varias instancias).
+# Corren como paso explícito de CI, con la credencial chtech_migrator, antes
+# de actualizar el servicio (ver docs/DEPLOYMENT.md).
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

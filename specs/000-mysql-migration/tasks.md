@@ -1,0 +1,29 @@
+# Tasks 000: Migración a MySQL y separación de repos (backend)
+
+- [x] Scaffolding: copiar `backend/` del monorepo original a este repo, excluyendo caché/artefactos.
+- [x] Dependencias: quitar `asyncpg`, agregar `aiomysql` + `cryptography`.
+- [x] `app/db/types.py::GUID` — nuevo TypeDecorator, usado en todos los modelos con PK/FK UUID.
+- [x] `app/core/config.py` — agregar `migration_database_url`.
+- [x] `database/init/01-create-roles.sh` — bootstrap de `chtech_app` / `chtech_migrator`.
+- [x] `docker-compose.yml` — `mysql:8.4`, sin servicio `frontend`, collation `utf8mb4_0900_as_cs`.
+- [x] `alembic/env.py` — leer `migration_database_url`.
+- [x] Modelos: `JSONB`→`JSON`, `email_lower` generado, índice B-tree en `projects.title`.
+- [x] `refresh_token_repository.py` — reescribir `revoke_if_active`/`purge_older_than` sin `RETURNING`.
+- [x] Eliminar las 21 migraciones Postgres-específicas.
+- [x] Generar `0001_baseline_mysql_schema.py` vía `alembic revision --autogenerate` contra MySQL real.
+- [x] Corregir `downgrade()` autogenerado (drop_index antes de drop_table rompe en MySQL para índices de FK).
+- [x] `scripts/migration_to_sql.py` — wrapper de `alembic upgrade head --sql`.
+- [x] Verificar contra MySQL real: `upgrade head` → `downgrade base` → `upgrade head` → `alembic check` (cero drift).
+- [x] `python -m app.db.seed` contra MySQL real — admin, tecnologías (con `MySQL` en vez de `PostgreSQL`), company, team member.
+- [x] `tests/test_db_privilege_boundary.py` — prueba negativa (chtech_app no puede DDL) + prueba positiva (chtech_app sí puede DML). Verificado en verde.
+- [x] `tests/conftest.py` — bootstrap del test DB con sintaxis MySQL y credencial `chtech_migrator`.
+- [x] `.github/workflows/{ci,security,release}.yml` — separados del monorepo, servicio `mysql` en CI, bootstrap de roles como paso explícito.
+- [x] Docs: `DATABASE_SCHEMA.md`, `DATABASE_MIGRATIONS.md`, `DEPLOYMENT.md`, `DOCKER.md`, `TESTING.md`, `CI_CD.md`, `TECH_STACK.md`, `AI_GUIDELINES.md`, `README.md`.
+- [x] ADRs: podar a las backend-relevantes, actualizar ADR-0005, nueva ADR-0014.
+- [x] `CLAUDE.md` — punto de entrada para asistentes de IA.
+- [x] `app/db/types.py::UTCDateTime` — nuevo TypeDecorator (`DATETIME(6)`, tz-aware en Python) para preservar precisión de microsegundos y comparabilidad con `datetime.now(UTC)` que Postgres daba por defecto; reemplaza el `DateTime(timezone=True)` genérico en las 5 columnas de auditoría/timestamp.
+- [x] `app/db/types.py::GUID.python_type` — agregado (SQLAlchemy lo requiere; sin él, `.python_type` lanza `NotImplementedError`).
+- [x] Tests de modelos: 8 aserciones `pytest.raises(IntegrityError)` sobre violaciones de `CHECK` corregidas a `OperationalError` (MySQL clasifica los `CHECK` distinto que Postgres — error 3819, no `IntegrityError`).
+- [x] `tests/test_db_base.py` — columna de test sin longitud (`VARCHAR` sin longitud es inválido en MySQL, válido en Postgres) causaba una cascada de ~350 errores en el resto de la suite; corregido con `String(255)`.
+- [x] Suite completa `pytest --cov` en verde contra MySQL real: 564 passed, 0 failed, 98.47% cobertura.
+- [x] `git init` + commit inicial.
