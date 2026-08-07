@@ -347,6 +347,42 @@ async def test_create_project_requires_title(db_session: AsyncSession) -> None:
     assert response.status_code == 422
 
 
+async def test_create_project_rejects_an_empty_slug(db_session: AsyncSession) -> None:
+    # Regression test: an empty/invalid slug used to pass ProjectWrite
+    # validation untouched, get persisted by the repository, and only blow
+    # up as an unhandled 500 when the Slug value object rejected it while
+    # building the response — after the row was already committed. The Slug
+    # value object (ADR-0012, DATA_MODEL.md) must reject it here instead, at
+    # the API boundary, before anything is written.
+    _, token = await _create_admin(db_session)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/admin/projects",
+            json={"slug": "", "title": "Empty Slug"},
+            headers=_auth(token),
+        )
+
+    assert response.status_code == 422
+
+
+async def test_create_project_rejects_an_uppercase_slug(
+    db_session: AsyncSession,
+) -> None:
+    _, token = await _create_admin(db_session)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/v1/admin/projects",
+            json={"slug": "Not-Valid", "title": "Uppercase Slug"},
+            headers=_auth(token),
+        )
+
+    assert response.status_code == 422
+
+
 async def test_create_project_rejects_a_malformed_repository_url(
     db_session: AsyncSession,
 ) -> None:

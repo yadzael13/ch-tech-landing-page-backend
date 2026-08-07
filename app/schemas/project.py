@@ -3,7 +3,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.domain.value_objects import Image, Url
+from app.domain.value_objects import Image, Slug, Url
 from app.models import ProjectStatus, Visibility
 
 
@@ -64,6 +64,17 @@ class ProjectWrite(BaseModel):
     started_at: date | None = None
     finished_at: date | None = None
     technology_ids: list[uuid.UUID] = []
+
+    @field_validator("slug")
+    @classmethod
+    def _validate_slug_shape(cls, value: str) -> str:
+        # Reuses the domain Slug value object (ADR-0012, DATA_MODEL.md) so an
+        # invalid slug (empty, uppercase, spaces...) is rejected here — a
+        # standard 422 — instead of reaching the repository, which used to
+        # persist the row and only raise once the response tried to rebuild
+        # the domain entity, after the write had already committed.
+        Slug(value)
+        return value
 
     @field_validator("repository_url", "live_demo_url")
     @classmethod
