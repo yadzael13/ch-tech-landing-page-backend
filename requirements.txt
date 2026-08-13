@@ -7,7 +7,7 @@ aiomysql==0.2.0
 # default caching_sha2_password auth plugin — without it, every connection
 # fails at handshake, not query time.
 cryptography==46.0.3
-alembic==1.18.5
+alembic==1.19.1
 pydantic-settings==2.14.2
 bcrypt==5.0.0
 pyjwt==2.13.0
