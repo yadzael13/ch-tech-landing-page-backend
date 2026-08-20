@@ -1,7 +1,7 @@
 fastapi==0.141.1
 uvicorn[standard]==0.52.1
 
-sqlalchemy[asyncio]==2.0.51
+sqlalchemy[asyncio]==2.0.52
 aiomysql==0.2.0
 # Required by aiomysql/PyMySQL to complete the RSA handshake for MySQL 8's
 # default caching_sha2_password auth plugin — without it, every connection
